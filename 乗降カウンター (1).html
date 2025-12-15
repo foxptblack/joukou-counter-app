@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>乗降カウンターアプリ</title>
+    <!-- Tailwind CSS CDNの読み込み -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Interフォントの設定 -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        /* ボタンの基本的なスタイル（モバイルでの押しやすさを重視） */
+        .count-button {
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .count-button:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        /* モーダル表示制御 */
+        .modal-overlay {
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+        .modal-overlay.open {
+            visibility: visible;
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col p-4">
+
+    <!-- ヘッダーとグローバル操作 (Fixed Header) -->
+    <div class="fixed top-0 left-0 right-0 z-10 w-full bg-white/90 backdrop-blur-sm p-4 pb-4 shadow-md flex flex-col items-center mx-auto">
+        <h1 class="text-3xl font-extrabold text-gray-800 mb-4 text-center">乗降カウンターアプリ</h1>
+        
+        <!-- グローバル操作ボタンコンテナ -->
+        <div class="w-full max-w-sm flex flex-col sm:flex-row gap-3">
+            <!-- 新しいカウンターを追加ボタン -->
+            <button id="add-counter-btn" class="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg transition duration-150 ease-in-out count-button flex items-center justify-center space-x-2 text-base opacity-50 cursor-not-allowed" disabled>
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                <span>カウンター追加</span>
+            </button>
+
+            <!-- 全カウンターをリセットボタン (新規追加) -->
+            <button id="global-reset-btn" class="flex-grow bg-yellow-500 hover:bg-yellow-600 text-gray-800 font-bold py-3 px-4 rounded-xl shadow-lg transition duration-150 ease-in-out count-button flex items-center justify-center space-x-2 text-base opacity-50 cursor-not-allowed" disabled>
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                <span>全カウンターをリセット</span>
+            </button>
+        </div>
+        
+        <!-- メッセージ/ローディングエリア (ヘッダー下に移動) -->
+        <div id="message-area" class="mt-4 text-sm font-medium hidden p-2 rounded-lg w-full max-w-sm text-center"></div>
+        <p id="loading-message" class="text-sm text-gray-500 mt-4 hidden">アプリを初期化中...</p>
+    </div>
+    
+    <!-- ローカルモード説明をヘッダー直下からコンテンツエリアへ移動 -->
+    <div class="text-xs text-gray-700 fixed top-[190px] left-0 right-0 p-2 bg-gray-200 text-center z-5 w-full">
+        <p>【ローカルモード】データはブラウザに保存され、ブラウザのキャッシュをクリアすると失われます。</p>
+    </div>
+
+
+    <!-- カウンターリストコンテナ (Main Content) -->
+    <!-- ptを増やし、固定ヘッダーとローカルモード説明の両方を避ける -->
+    <div id="counters-list" class="grid grid-cols-1 gap-6 w-full mx-auto pt-[260px]">
+        <!-- カウンターカードがここに動的に挿入されます -->
+    </div>
+    
+    <!-- 1. Custom Confirmation Modal Overlay (リセット/削除確認用) -->
+    <div id="confirmation-modal" class="modal-overlay fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-11/12 max-w-sm transform scale-95 transition-transform duration-300">
+            <h3 id="modal-title" class="text-xl font-bold text-gray-800 mb-4">確認</h3>
+            <p id="modal-message" class="text-gray-600 mb-6"></p>
+            <!-- Modal Action Buttons -->
+            <div class="flex justify-end space-x-3">
+                <button id="modal-cancel-btn" class="py-2 px-4 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg font-medium transition">キャンセル</button>
+                <button id="modal-confirm-btn" class="py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition">実行</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 2. Custom Rename Modal Overlay (名称変更用) -->
+    <div id="rename-modal" class="modal-overlay fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-11/12 max-w-sm">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">カウンター名変更</h3>
+            <p class="text-gray-600 mb-4">新しいカウンター名を入力してください:</p>
+            <input type="text" id="rename-input" class="w-full p-3 border border-gray-300 rounded-lg mb-6 focus:ring-blue-500 focus:border-blue-500 text-gray-800" placeholder="新しい名前">
+            
+            <div class="flex justify-end space-x-3">
+                <button id="rename-cancel-btn" class="py-2 px-4 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg font-medium transition">キャンセル</button>
+                <button id="rename-confirm-btn" class="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition">変更を保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. Custom Comment Modal Overlay (コメント編集用) -->
+    <div id="comment-modal" class="modal-overlay fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-11/12 max-w-sm">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">コメント/メモ編集</h3>
+            <p class="text-gray-600 mb-4" id="comment-for-counter-name"></p>
+            <textarea id="comment-input" class="w-full p-3 border border-gray-300 rounded-lg mb-6 h-32 focus:ring-blue-500 focus:border-blue-500 text-gray-800" placeholder="コメントを入力してください"></textarea>
+            
+            <div class="flex justify-end space-x-3">
+                <button id="comment-cancel-btn" class="py-2 px-4 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-lg font-medium transition">キャンセル</button>
+                <button id="comment-confirm-btn" class="py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition">保存</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- アプリケーションロジック -->
+    <script>
+        // グローバル変数の定義
+        let localCounters = {}; 
+
+        // ローカルストレージ用設定
+        const LS_KEY = 'passenger_counters_data';
+        
+        // UI要素の取得
+        const loadingMessage = document.getElementById('loading-message');
+        const messageArea = document.getElementById('message-area');
+        const addCounterBtn = document.getElementById('add-counter-btn');
+        const globalResetBtn = document.getElementById('global-reset-btn'); 
+        const countersList = document.getElementById('counters-list');
+        
+        // Modal要素の取得 (Confirmation)
+        const modal = document.getElementById('confirmation-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+        const modalCancelBtn = document.getElementById('modal-cancel-btn');
+
+        // Modal要素の取得 (Rename)
+        const renameModal = document.getElementById('rename-modal');
+        const renameInput = document.getElementById('rename-input');
+        const renameConfirmBtn = document.getElementById('rename-confirm-btn');
+        const renameCancelBtn = document.getElementById('rename-cancel-btn');
+
+        // Modal要素の取得 (Comment)
+        const commentModal = document.getElementById('comment-modal');
+        const commentInput = document.getElementById('comment-input');
+        const commentConfirmBtn = document.getElementById('comment-confirm-btn');
+        const commentCancelBtn = document.getElementById('comment-cancel-btn');
+        const commentCounterNameDisplay = document.getElementById('comment-for-counter-name');
+
+
+        // --- ユーティリティ関数 ---
+
+        /**
+         * バイブレーションを発生させる
+         */
+        function triggerVibration() {
+            // navigator.vibrateがサポートされているか確認し、50ms振動させる
+            if (navigator.vibrate) {
+                navigator.vibrate(50);
+            }
+        }
+
+        /**
+         * メッセージを表示する（エラーまたは警告）
+         * @param {string} msg
+         * @param {string} type - 'error' or 'warning' or 'info'
+         */
+        function displayMessage(msg, type = 'error') {
+            console.log(`${type.toUpperCase()}: ${msg}`);
+            messageArea.textContent = msg;
+            messageArea.classList.remove('hidden', 'bg-red-100', 'text-red-600', 'bg-yellow-100', 'text-yellow-600', 'bg-green-100', 'text-green-600');
+            if (type === 'error') {
+                messageArea.classList.add('bg-red-100', 'text-red-600');
+            } else if (type === 'warning') {
+                messageArea.classList.add('bg-yellow-100', 'text-yellow-600');
+            } else if (type === 'info') {
+                messageArea.classList.add('bg-green-100', 'text-green-600');
+            }
+            setTimeout(hideMessage, 5000); // 5秒後に自動非表示
+        }
+        
+        /**
+         * メッセージを非表示にする
+         */
+        function hideMessage() {
+             messageArea.classList.add('hidden');
+        }
+
+        /**
+         * ボタンの有効/無効を設定する
+         * @param {boolean} enabled - trueで有効化, falseで無効化
+         */
+        function setInteractionState(enabled) {
+            addCounterBtn.disabled = !enabled;
+            globalResetBtn.disabled = !enabled;
+            
+            // 見た目も反映
+            const buttons = [addCounterBtn, globalResetBtn];
+            buttons.forEach(btn => {
+                if (enabled) {
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                } else {
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+            });
+        }
+        
+        // --- Modal Control (Confirmation) ---
+
+        /**
+         * カスタム確認モーダルを表示し、確認処理を設定する
+         */
+        function showConfirmationModal(title, message, onConfirm, confirmText = '実行') {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            modalConfirmBtn.textContent = confirmText;
+
+            modalConfirmBtn.onclick = null;
+            modalCancelBtn.onclick = null;
+
+            modalConfirmBtn.onclick = () => {
+                onConfirm();
+                modal.classList.remove('open');
+            };
+
+            modalCancelBtn.onclick = () => {
+                modal.classList.remove('open');
+                displayMessage('操作をキャンセルしました。', 'warning');
+            };
+
+            modal.classList.add('open');
+        }
+
+        // --- ローカルストレージ操作 ---
+
+        /**
+         * ローカルストレージからデータをロードし、UIを更新する
+         */
+        function loadLocalCounters() {
+            try {
+                const dataString = localStorage.getItem(LS_KEY);
+                localCounters = dataString ? JSON.parse(dataString) : {};
+                
+                // データに 'comment' フィールドが欠落している場合に追加 (マイグレーション)
+                Object.keys(localCounters).forEach(id => {
+                    if (localCounters[id].comment === undefined) {
+                        localCounters[id].comment = "";
+                    }
+                });
+                
+                // 配列に変換し、UIレンダリング関数に渡す
+                const countersArray = Object.keys(localCounters).map(id => ({ id, ...localCounters[id] }));
+                renderCounters(countersArray);
+            } catch (e) {
+                displayMessage('ローカルストレージの読み込みに失敗しました: ' + e.message, 'error');
+            }
+        }
+
+        /**
+         * ローカルストレージにデータを保存する
+         */
+        function saveLocalCounters() {
+            try {
+                localStorage.setItem(LS_KEY, JSON.stringify(localCounters));
+            } catch (e) {
+                displayMessage('ローカルストレージへの保存に失敗しました: ' + e.message, 'error');
+            }
+        }
+        
+        // --- データ操作 ---
+        
+        /**
+         * カウンターデータを保存（更新）する
+         */
+        function updateCounter(counterId, updateData) {
+            if (localCounters[counterId]) {
+                localCounters[counterId] = { ...localCounters[counterId], ...updateData };
+                saveLocalCounters();
+                loadLocalCounters(); // UI更新
+            }
+        }
+
+        /**
+         * 新しいカウンターを追加する
+         */
+        function handleAddCounter() {
+            const newId = crypto.randomUUID();
+            const counterCount = Object.keys(localCounters).length + 1;
+            const defaultName = `カウンター ${counterCount}`;
+
+            localCounters[newId] = {
+                name: defaultName,
+                in: 0,
+                out: 0,
+                comment: "", // 新しいカウンターにコメントフィールドを追加
+                createdAt: new Date().toISOString()
+            };
+            saveLocalCounters();
+            loadLocalCounters();
+            displayMessage('新しいカウンターを追加しました。', 'info');
+             
+            // カウンター追加後、名称変更モーダルを自動表示
+            // UI再描画後にしか操作できないため、setTimeoutでディレイをかける
+            setTimeout(() => handleRename(newId, defaultName), 50);
+        }
+
+        /**
+         * 乗降操作を処理する
+         */
+        function handleCountChange(counterId, type, delta, currentIn, currentOut) {
+            
+            triggerVibration(); 
+            
+            let update = {};
+
+            if (type === 'in') {
+                const newIn = currentIn + delta;
+                if (newIn < 0) {
+                     displayMessage('エラー: 乗車数は負の値にできません。', 'error');
+                     return;
+                }
+                update = { in: newIn };
+                updateCounter(counterId, update);
+
+            } else if (type === 'out') {
+                const newOut = currentOut + delta;
+                
+                if (newOut < 0) {
+                     displayMessage('エラー: 降車数は負の値にできません。', 'error');
+                     return;
+                }
+                
+                // 制限なしで更新
+                update = { out: newOut };
+                updateCounter(counterId, update);
+            }
+        }
+        
+        /**
+         * 全カウンターを一括でリセットする (確認モーダル表示)
+         */
+        function handleGlobalReset() {
+            showConfirmationModal(
+                '全カウンターリセット確認',
+                '本当にすべてのカウンターの乗降数を0にリセットしますか？この操作は元に戻せません。',
+                executeGlobalReset,
+                'リセット実行'
+            );
+        }
+
+        /**
+         * 全カウンターを一括でリセットする (実行ロジック)
+         */
+        function executeGlobalReset() {
+            setInteractionState(false);
+
+            const updates = Object.keys(localCounters);
+            for (const id in localCounters) {
+                localCounters[id].in = 0;
+                localCounters[id].out = 0;
+                localCounters[id].updatedAt = new Date().toISOString();
+            }
+            saveLocalCounters();
+            loadLocalCounters();
+            displayMessage(`全カウンター (${updates.length} 件) を正常にリセットしました。`, 'info');
+            setInteractionState(true);
+        }
+
+
+        /**
+         * カウンターを削除する (確認モーダル表示)
+         */
+        function handleDelete(counterId) {
+            showConfirmationModal(
+                'カウンター削除確認',
+                `本当にカウンター「${counterId}」を削除しますか？`,
+                () => executeDeleteCounter(counterId),
+                '削除実行'
+            );
+        }
+
+        /**
+         * カウンターを削除する (実行ロジック)
+         */
+        function executeDeleteCounter(counterId) {
+            delete localCounters[counterId];
+            saveLocalCounters();
+            loadLocalCounters();
+            displayMessage(`カウンター「${counterId}」を削除しました。`, 'info');
+        }
+        
+        /**
+         * カウンターの名前を変更する (カスタムモーダル表示)
+         */
+        function handleRename(counterId, currentName) {
+            
+            // 入力フィールドに現在の名前をセット
+            renameInput.value = currentName;
+            
+            // 既存のリスナーを削除
+            renameConfirmBtn.onclick = null;
+            renameCancelBtn.onclick = null;
+            
+            // 確定ボタンのリスナーを設定
+            renameConfirmBtn.onclick = () => {
+                const newName = renameInput.value;
+                const trimmedNewName = newName.trim();
+                const trimmedCurrentName = currentName.trim();
+
+                if (trimmedNewName === "") {
+                    displayMessage('カウンター名は空にできません。', 'warning');
+                    return;
+                } else if (trimmedNewName !== trimmedCurrentName) {
+                    // 名前が変更された場合のみ更新
+                    updateCounter(counterId, { name: trimmedNewName });
+                    displayMessage(`カウンター名を「${trimmedNewName}」に変更しました。`, 'info');
+                }
+                renameModal.classList.remove('open');
+            };
+
+            // キャンセルボタンのリスナーを設定
+            renameCancelBtn.onclick = () => {
+                renameModal.classList.remove('open');
+                displayMessage('名称変更をキャンセルしました。', 'warning');
+            };
+            
+            // モーダルを表示
+            renameModal.classList.add('open');
+            renameInput.focus(); // 入力フィールドにフォーカス
+
+
+            // Enterキーでの確定もサポート
+            renameInput.onkeydown = (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    renameConfirmBtn.click();
+                }
+            };
+        }
+
+        /**
+         * コメント編集モーダルを表示する
+         */
+        function handleCommentEdit(counterId, counterName, currentComment) {
+            
+            commentCounterNameDisplay.textContent = `編集対象: ${counterName}`;
+            commentInput.value = currentComment;
+            
+            // 既存のリスナーを削除
+            commentConfirmBtn.onclick = null;
+            commentCancelBtn.onclick = null;
+
+            // 確定ボタンのリスナーを設定
+            commentConfirmBtn.onclick = () => {
+                const newComment = commentInput.value;
+                updateCounter(counterId, { comment: newComment });
+                displayMessage('コメントを保存しました。', 'info');
+                commentModal.classList.remove('open');
+            };
+
+            // キャンセルボタンのリスナーを設定
+            commentCancelBtn.onclick = () => {
+                commentModal.classList.remove('open');
+                displayMessage('コメント編集をキャンセルしました。', 'warning');
+            };
+
+            commentModal.classList.add('open');
+            commentInput.focus();
+        }
+
+        // --- UIレンダリング ---
+        
+        /**
+         * 個別のカウンターカードを作成し、イベントリスナーを設定する
+         */
+        function createCounterCard(counter) {
+            const card = document.createElement('div');
+            card.id = `card-${counter.id}`;
+            // 縦幅を詰めるために py-6 を py-4 に変更
+            card.className = 'bg-white shadow-xl rounded-3xl p-4 border border-gray-100 flex flex-col justify-between';
+            
+            const totalPassengers = counter.in - counter.out;
+
+            card.innerHTML = `
+                <!-- ヘッダーと名前 -->
+                <div class="relative mb-2 border-b pb-2 text-center">
+                    
+                    <!-- コメント編集アイコン (絶対配置で左上に固定) -->
+                    <button class="comment-btn p-1 absolute top-0 left-0" data-id="${counter.id}" data-name="${counter.name}" data-comment="${counter.comment || ''}" title="コメント編集">
+                        <svg class="w-5 h-5 ${counter.comment && counter.comment.trim() ? 'text-blue-600' : 'text-gray-400'}" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21 4c0-1.103-.897-2-2-2H5c-1.103 0-2 .897-2 2v12c0 1.103.897 2 2 2h4.586l3.707 3.707a1 1 0 001.414 0l3.707-3.707H19c1.103 0 2-.897 2-2V4zm-2 0v12h-5.586l-3.707 3.707a.5.5 0 01-.707 0L7.586 16H5V4h14zM8 9h8v2H8V9zm0 4h5v2H8v-2z"></path></svg>
+                    </button>
+
+                    <!-- 名前変更エリアを中央に配置 -->
+                    <div id="name-area-${counter.id}" class="inline-flex items-center space-x-2 cursor-pointer text-gray-700 hover:text-blue-600 transition"
+                         title="クリックで名前変更" data-id="${counter.id}" data-name="${counter.name}">
+                        <!-- style: mx-autoで中央揃えに設定 -->
+                        <p class="text-xl font-bold truncate">
+                            ${counter.name}
+                        </p>
+                        <!-- 編集アイコン -->
+                        <svg class="w-4 h-4 text-gray-400 hover:text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-7-7l1.414-1.414a2 2 0 012.828 0l1.414 1.414m-1-4.414 1.414 1.414m-3.707 3.707a1 1 0 01-1.414 0L4 16.414a1 1 0 010-1.414L14.586 4.414a2 2 0 012.828 0l1.414 1.414a2 2 0 010 2.828L7.707 17.707z"></path></svg>
+                    </div>
+                    
+                    <!-- 削除ボタン (絶対配置で右上に固定) -->
+                    <button class="text-gray-400 hover:text-red-500 delete-btn p-1 absolute top-0 right-0" data-id="${counter.id}" title="カウンターを削除">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </div>
+                
+                <!-- IN/OUTの個別表示（メイン表示） -->
+                <div class="grid grid-cols-2 gap-4 text-center my-3 p-3 bg-gray-50 rounded-xl shadow-inner border border-gray-200">
+                    <div>
+                        <p class="text-base text-gray-500 font-medium">乗車 (IN)</p>
+                        <p class="text-4xl font-extrabold text-green-600 mt-1" id="in-${counter.id}">${counter.in}</p>
+                    </div>
+                    <div>
+                        <p class="text-base text-gray-500 font-medium">降車 (OUT)</p>
+                        <p class="text-4xl font-extrabold text-red-600 mt-1" id="out-${counter.out}">${counter.out}</p>
+                    </div>
+                </div>
+                
+                <!-- 操作ボタンエリア (4ボタン配置 - +1, -1, +1, -1) -->
+                <div class="grid grid-cols-4 gap-2 mt-2">
+                    <!-- 1. 乗車 (+) -->
+                    <button class="count-button bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl shadow-md text-xl in-plus-btn" data-id="${counter.id}" data-in="${counter.in}" data-out="${counter.out}">
+                        <span class="text-4xl font-extrabold">+</span>
+                    </button>
+                    <!-- 2. 乗車修正 (-) -->
+                    <button class="count-button bg-green-300 hover:bg-green-400 text-gray-800 font-bold py-3 rounded-xl shadow-md text-xl in-minus-btn" data-id="${counter.id}" data-in="${counter.in}" data-out="${counter.out}">
+                        <span class="text-4xl font-extrabold">-</span>
+                    </button>
+                    <!-- 3. 降車修正 (+) -->
+                    <button class="count-button bg-red-300 hover:bg-red-400 text-gray-800 font-bold py-3 rounded-xl shadow-md text-xl out-plus-btn" data-id="${counter.id}" data-in="${counter.in}" data-out="${counter.out}">
+                        <span class="text-4xl font-extrabold">+</span>
+                    </button>
+                    <!-- 4. 降車 (-) -->
+                    <button class="count-button bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-xl shadow-md text-xl out-minus-btn" data-id="${counter.id}" data-in="${counter.in}" data-out="${counter.out}">
+                        <span class="text-4xl font-extrabold">-</span>
+                    </button>
+                </div>
+            `;
+            
+            // イベントリスナーの追加
+            card.querySelector('.in-plus-btn').addEventListener('click', (e) => {
+                handleCountChange(counter.id, 'in', 1, counter.in, counter.out);
+            });
+            card.querySelector('.in-minus-btn').addEventListener('click', (e) => {
+                handleCountChange(counter.id, 'in', -1, counter.in, counter.out);
+            });
+            // 降車修正 (+1)
+            card.querySelector('.out-plus-btn').addEventListener('click', (e) => {
+                handleCountChange(counter.id, 'out', 1, counter.in, counter.out);
+            });
+            // 降車 (-1)
+            card.querySelector('.out-minus-btn').addEventListener('click', (e) => {
+                handleCountChange(counter.id, 'out', -1, counter.in, counter.out);
+            });
+
+            card.querySelector('.delete-btn').addEventListener('click', (e) => {
+                handleDelete(counter.id);
+            });
+            // 名前変更イベントリスナー
+            card.querySelector(`#name-area-${counter.id}`).addEventListener('click', (e) => {
+                handleRename(counter.id, counter.name);
+            });
+            // コメント編集イベントリスナー (新規)
+            card.querySelector(`.comment-btn`).addEventListener('click', (e) => {
+                const button = e.currentTarget;
+                handleCommentEdit(
+                    button.dataset.id,
+                    button.dataset.name,
+                    button.dataset.comment
+                );
+            });
+
+            return card;
+        }
+
+        /**
+         * 全カウンターデータに基づいてUIを再構築する
+         */
+        function renderCounters(counters) {
+            // 既存のリストをクリア
+            countersList.innerHTML = ''; 
+
+            if (counters.length === 0) {
+                countersList.innerHTML = '<p class="text-center text-gray-500 col-span-full mt-8">カウンターがありません。「カウンター追加」ボタンから作成してください。</p>';
+                setInteractionState(true);
+                return;
+            }
+
+            // 各カウンターをレンダリング
+            counters.forEach(counter => {
+                countersList.appendChild(createCounterCard(counter));
+            });
+            
+            setInteractionState(true);
+        }
+
+        /**
+         * アプリケーションの初期化
+         */
+        function initApp() {
+            setInteractionState(false); 
+            loadingMessage.classList.remove('hidden');
+            
+            // ローカルストレージからデータをロードし、UIをレンダリング
+            loadLocalCounters();
+            
+            loadingMessage.classList.add('hidden');
+            displayMessage('アプリが初期化されました。データはローカルに保存されます。', 'info');
+
+            // イベントリスナーの設定
+            addCounterBtn.addEventListener('click', handleAddCounter);
+            globalResetBtn.addEventListener('click', handleGlobalReset); 
+
+            setInteractionState(true);
+        }
+
+        // アプリケーションの開始
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>
