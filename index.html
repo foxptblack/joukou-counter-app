@@ -2,7 +2,8 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 修正: ズーム操作を無効化する設定を追加 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>乗降カウンターアプリ</title>
     <!-- Tailwind CSS CDNの読み込み -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -12,6 +13,8 @@
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f7f9fb;
+            /* iOS/Safariでのダブルタップズームを抑制するCSS設定（補助的） */
+            touch-action: manipulation; 
         }
         /* ボタンの基本的なスタイル（モバイルでの押しやすさを重視） */
         .count-button {
@@ -481,6 +484,7 @@
             card.className = 'bg-white shadow-xl rounded-3xl p-4 border border-gray-100 flex flex-col justify-between';
             
             const totalPassengers = counter.in - counter.out;
+            const hasComment = counter.comment && counter.comment.trim();
 
             card.innerHTML = `
                 <!-- ヘッダーと名前 -->
@@ -488,7 +492,7 @@
                     
                     <!-- コメント編集アイコン (絶対配置で左上に固定) -->
                     <button class="comment-btn p-1 absolute top-0 left-0" data-id="${counter.id}" data-name="${counter.name}" data-comment="${counter.comment || ''}" title="コメント編集">
-                        <svg class="w-5 h-5 ${counter.comment && counter.comment.trim() ? 'text-blue-600' : 'text-gray-400'}" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21 4c0-1.103-.897-2-2-2H5c-1.103 0-2 .897-2 2v12c0 1.103.897 2 2 2h4.586l3.707 3.707a1 1 0 001.414 0l3.707-3.707H19c1.103 0 2-.897 2-2V4zm-2 0v12h-5.586l-3.707 3.707a.5.5 0 01-.707 0L7.586 16H5V4h14zM8 9h8v2H8V9zm0 4h5v2H8v-2z"></path></svg>
+                        <svg class="w-5 h-5 ${hasComment ? 'text-blue-600' : 'text-gray-400'}" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21 4c0-1.103-.897-2-2-2H5c-1.103 0-2 .897-2 2v12c0 1.103.897 2 2 2h4.586l3.707 3.707a1 1 0 001.414 0l3.707-3.707H19c1.103 0 2-.897 2-2V4zm-2 0v12h-5.586l-3.707 3.707a.5.5 0 01-.707 0L7.586 16H5V4h14zM8 9h8v2H8V9zm0 4h5v2H8v-2z"></path></svg>
                     </button>
 
                     <!-- 名前変更エリアを中央に配置 -->
@@ -509,6 +513,7 @@
                 </div>
                 
                 <!-- IN/OUTの個別表示（メイン表示） -->
+                <!-- my-6 を my-3 に変更して縦を詰める -->
                 <div class="grid grid-cols-2 gap-4 text-center my-3 p-3 bg-gray-50 rounded-xl shadow-inner border border-gray-200">
                     <div>
                         <p class="text-base text-gray-500 font-medium">乗車 (IN)</p>
@@ -562,15 +567,17 @@
             });
             // 名前変更イベントリスナー
             card.querySelector(`#name-area-${counter.id}`).addEventListener('click', (e) => {
+                // カスタムモーダルを起動
                 handleRename(counter.id, counter.name);
             });
-            // コメント編集イベントリスナー (新規)
+            // コメント編集イベントリスナー
             card.querySelector(`.comment-btn`).addEventListener('click', (e) => {
                 const button = e.currentTarget;
+                // data-commentは常に最新のデータを引数として渡す
                 handleCommentEdit(
-                    button.dataset.id,
-                    button.dataset.name,
-                    button.dataset.comment
+                    counter.id,
+                    counter.name,
+                    counter.comment || ''
                 );
             });
 
