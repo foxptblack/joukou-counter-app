@@ -19,6 +19,8 @@
         /* ボタンの基本的なスタイル（モバイルでの押しやすさを重視） */
         .count-button {
             transition: transform 0.1s, box-shadow 0.1s;
+            /* **修正:** ボタン上での意図しないジェスチャーを無効化 */
+            touch-action: manipulation;
         }
         .count-button:active {
             transform: translateY(1px);
